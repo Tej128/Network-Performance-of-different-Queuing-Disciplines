@@ -1,0 +1,106 @@
+clc
+close all
+clear all; % Empty memory
+rng(1); % Set random seed
+
+% Parameters
+lambda1_initial = 5; % Initial arrival rate for link 1
+lambda2_initial = 15; % Initial arrival rate for link 2
+mu = 10; % Service rate for the buffer
+endtime = 100; % Simulation length
+buffer_capacity = 100; % Buffer capacity
+
+%figure(100), xx = 3; yy = 2;
+t = 0; % Current time
+tstep = 1; % Average time between consecutive measurement events
+buffer = zeros(1, buffer_capacity); % Initialize buffer
+buffer_count = 0; % Current number of packets in the buffer
+event = zeros(1, 4); % Constructs vector to keep time for next arrivals (pos 1 and 2), next buffer service (pos 3), and next measurement event (pos 4)
+event(1) = exprnd(1/lambda1_initial); % Time for the next arrival for link 1
+event(2) = exprnd(1/lambda2_initial); % Time for the next arrival for link 2
+
+%figure(100), subplot(yy, xx, xx + 1), bar(event(1)), title('Arrival Link 1');
+%figure(100), subplot(yy, xx, xx + 2), bar(event(2)), title('Arrival Link 2');
+event(3) = inf; % No next buffer service (empty buffer)
+%figure(100), subplot(yy, xx, xx + 3), bar(event(3)), title('Buffer Service');
+event(4) = exprnd(tstep); % Time for the next measurement event
+%figure(100), subplot(yy, xx, xx + 4), bar(event(4)), title('Measurement Event');
+
+nbrmeasurements = 0; % Number of measurement events so far
+nbrdeparted = 0; % Number of departed packets
+nbrarrived1 = 0; % Number of packets arrived from link 1
+nbrarrived2 = 0; % Number of packets arrived from link 2
+pl = zeros(1, 2);
+packet_loss = 0; % Number of packets lost
+packet_delays = zeros(1, buffer_capacity); % To calculate packet delays
+
+adaptive = false; % Indicator for adaptive queuing
+
+pause;
+
+while t < endtime
+    [t, nextevent] = min(event);
+    
+    if adaptive && (buffer_count / buffer_capacity > 0.8)
+        % If buffer load exceeds 80%, reduce the arrival rate to lower the load
+        lambda1 = 0.4 * mu;
+        lambda2 = 0.6 * mu;
+        adaptive = false;
+    else
+        % If buffer load is below 80%, revert to initial arrival rates
+        lambda1 = lambda1_initial;
+        lambda2 = lambda2_initial;
+        adaptive = true;
+    end
+
+    if nextevent == 1 % Arrival from Link 1
+        event(1) = exprnd(1/lambda1) + t;
+        %figure(100), subplot(yy, xx, xx + 1), bar(event(1)), title('Arrival Link 1');
+        nbrarrived1 = nbrarrived1 + 1;
+        if buffer_count < buffer_capacity
+            buffer_count = buffer_count + 1;
+            buffer(buffer_count) = t;
+        else
+            packet_loss = packet_loss + 1;
+            pl(1) = pl(1) + 1;
+        end
+    elseif nextevent == 2 % Arrival from Link 2
+        event(2) = exprnd(1/lambda2) + t;
+        %figure(100), subplot(yy, xx, xx + 2), bar(event(2)), title('Arrival Link 2');
+        nbrarrived2 = nbrarrived2 + 1;
+        if buffer_count < buffer_capacity
+            buffer_count = buffer_count + 1;
+            buffer(buffer_count) = t;
+        else
+            packet_loss = packet_loss + 1;
+            pl(2) = pl(2) + 1;
+        end
+    elseif nextevent == 3 % Buffer service
+        if buffer_count > 0
+            % Packet departure
+            nbrdeparted = nbrdeparted + 1;
+            packet_delays(nbrdeparted) = t - buffer(1);
+            
+            % Remove the departed packet from the buffer
+            buffer(1:buffer_count-1) = buffer(2:buffer_count);
+            buffer_count = buffer_count - 1;
+        end
+        event(3) = inf;
+    else % Measurement event
+        event(4) = t + exprnd(tstep);
+        
+        if buffer_count > 0
+            event(3) = t;
+        else
+            event(3) = inf;
+        end
+    end
+end
+
+% Calculate average packet delay
+average_packet_delay = mean(packet_delays(1:nbrdeparted));
+
+fprintf('Packet Loss: %d\n', packet_loss);
+fprintf('Packet Loss link1: %d\n', pl(1));
+fprintf('Packet Loss link2: %d\n', pl(2));
+fprintf('Average Packet Delay: %f\n', average_packet_delay);
